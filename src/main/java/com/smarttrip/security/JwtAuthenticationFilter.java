@@ -48,47 +48,70 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String authHeader = request.getHeader("Authorization");
 
+        // No token: let Spring Security decide whether authentication
+        // is required for this endpoint.
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        String token = authHeader.substring(7);
+        String token = authHeader.substring(7).trim();
 
         try {
+            if (token.isEmpty()) {
+                sendUnauthorized(response, "Missing token");
+                return;
+            }
+
             String email = jwtService.extractUsername(token);
 
-            if (email != null
-                    && SecurityContextHolder.getContext()
-                            .getAuthentication() == null) {
+            if (email == null || email.isBlank()) {
+                sendUnauthorized(response, "Invalid token");
+                return;
+            }
+
+            if (SecurityContextHolder.getContext()
+                    .getAuthentication() == null) {
 
                 UserDetails userDetails =
                         userDetailsService.loadUserByUsername(email);
 
-                if (jwtService.isTokenValid(token, userDetails)) {
-                    UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(
-                                    userDetails,
-                                    null,
-                                    userDetails.getAuthorities());
-
-                    authentication.setDetails(
-                            new WebAuthenticationDetailsSource()
-                                    .buildDetails(request));
-
-                    SecurityContextHolder.getContext()
-                            .setAuthentication(authentication);
+                if (!jwtService.isTokenValid(token, userDetails)) {
+                    SecurityContextHolder.clearContext();
+                    sendUnauthorized(response, "Invalid or expired token");
+                    return;
                 }
+
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(
+                                userDetails,
+                                null,
+                                userDetails.getAuthorities());
+
+                authentication.setDetails(
+                        new WebAuthenticationDetailsSource()
+                                .buildDetails(request));
+
+                SecurityContextHolder.getContext()
+                        .setAuthentication(authentication);
             }
+
+            filterChain.doFilter(request, response);
+
         } catch (Exception exception) {
             SecurityContextHolder.clearContext();
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.setContentType("application/json");
-            response.getWriter().write(
-                    "{\"message\":\"Invalid or expired token\"}");
-            return;
+            sendUnauthorized(response, "Invalid or expired token");
         }
+    }
 
-        filterChain.doFilter(request, response);
+    private void sendUnauthorized(
+            HttpServletResponse response,
+            String message) throws IOException {
+
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write(
+                "{\"message\":\"" + message + "\"}");
     }
 }

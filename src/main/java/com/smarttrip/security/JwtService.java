@@ -6,6 +6,7 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
@@ -17,14 +18,18 @@ public class JwtService {
     private String secret;
 
     private SecretKey getKey() {
-        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        return Keys.hmacShaKeyFor(
+            secret.getBytes(StandardCharsets.UTF_8)
+        );
     }
 
     public String generateToken(String email) {
         return Jwts.builder()
                 .subject(email)
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 86400000))
+                .expiration(
+                    new Date(System.currentTimeMillis() + 86400000)
+                )
                 .signWith(getKey())
                 .compact();
     }
@@ -38,13 +43,28 @@ public class JwtService {
                 .getSubject();
     }
 
-    public boolean isTokenValid(String token, UserDetails userDetails) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isTokenValid'");
+    public String extractUsername(String token) {
+        return extractEmail(token);
     }
 
-    public String extractUsername(String token) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'extractUsername'");
+    public boolean isTokenValid(
+            String token,
+            UserDetails userDetails) {
+
+        String username = extractUsername(token);
+
+        return username.equals(userDetails.getUsername())
+                && !isTokenExpired(token);
+    }
+
+    private boolean isTokenExpired(String token) {
+        Date expiration = Jwts.parser()
+                .verifyWith(getKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getExpiration();
+
+        return expiration.before(new Date());
     }
 }
